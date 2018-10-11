@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["client_streaming",""],["server_streaming",""],["streaming",""],["unary",""]],"struct":[["Grpc",""]],"trait":[["Encodable","Convert a stream of protobuf messages to an HTTP body payload."]]});

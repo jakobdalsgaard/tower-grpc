@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["Future","Trait for types which are a placeholder of a value that may become available at some later point in time."]],"type":[["Poll","Return type of the `Future::poll` method, indicates whether a future's value is ready or not."]]});
