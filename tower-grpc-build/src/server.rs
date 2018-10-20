@@ -1,6 +1,7 @@
 use codegen;
 use prost_build;
 use super::ImportType;
+use std::collections::LinkedList;
 
 /// Generates service code
 pub struct ServiceGenerator;
@@ -9,12 +10,14 @@ impl ServiceGenerator {
     /// Generate the gRPC server code
     pub fn generate(&self,
                     service: &prost_build::Service,
+                    middleware_list: &mut LinkedList<(String, String)>,
                     scope: &mut codegen::Scope) {
-        self.define(service, scope);
+        self.define(service, middleware_list, scope);
     }
 
     fn define(&self,
               service: &prost_build::Service,
+              middleware_list: &mut LinkedList<(String, String)>,
               scope: &mut codegen::Scope) {
         // Create scope that contains the generated server code.
         {
@@ -22,6 +25,11 @@ impl ServiceGenerator {
                 .vis("pub")
                 .import("::tower_grpc::codegen::server", "*")
                 ;
+
+            let mw_iter = middleware_list.iter();
+            for (pa, ty) in mw_iter {
+                module.import(&pa, &ty);
+            }
 
             // Re-define the try_ready macro
             module.scope()
@@ -37,7 +45,7 @@ macro_rules! try_ready {
 }");
 
             self.define_service_trait(service, module.scope());
-            self.define_server_struct(service, module.scope());
+            self.define_server_struct(service, middleware_list, module.scope());
 
             let support = module.new_module(&::lower_name(&service.name))
                 .vis("pub")
@@ -135,6 +143,7 @@ macro_rules! try_ready {
 
     fn define_server_struct(&self,
                             service: &prost_build::Service,
+                            middleware_list: &LinkedList<(String, String)>,
                             scope: &mut codegen::Scope)
     {
         let name = format!("{}Server", service.name);
@@ -253,6 +262,7 @@ macro_rules! try_ready {
 
         scope.push_impl(service_impl);
 
+
         scope.new_impl(&name)
             .generic("T")
             .target_generic("T")
@@ -261,13 +271,13 @@ macro_rules! try_ready {
             .associate_type("Request", "http::Request<tower_h2::RecvBody>")
             .associate_type("Response", &response_type)
             .associate_type("Error", "h2::Error")
-            .associate_type("Service", "Self")
+            .associate_type("Service", wrap_in_middleware_types(middleware_list, "Self"))
             .associate_type("InitError", "h2::Error")
             .associate_type("Future", "futures::FutureResult<Self::Service, Self::Error>")
             .new_fn("new_service")
             .arg_ref_self()
             .ret("Self::Future")
-            .line("futures::ok(self.clone())")
+            .line(["futures::ok(", wrap_in_middleware_constructors(middleware_list, "self.clone()").as_ref(), ")"].concat())
             ;
     }
 
@@ -502,7 +512,18 @@ macro_rules! try_ready {
             .line(&format!("self.0.{}(request)", method.name))
             ;
     }
+
 }
+
+fn wrap_in_middleware_types (middlewares: &LinkedList<(String, String)>, ty: &str) -> String {
+    middlewares.iter().fold(ty.to_string(), |acc, (_mw_pa, mw_ty)| [mw_ty, "<", acc.as_str(), ">"].concat())
+}
+
+fn wrap_in_middleware_constructors (middlewares: &LinkedList<(String, String)>, line: &str) -> String {
+    middlewares.iter().fold(line.to_string(), |acc, (_mw_pa, mw_ty)| [mw_ty, "::new(", acc.as_str(), ")"].concat())
+}
+
+
 
 // ===== Here be the crazy types =====
 

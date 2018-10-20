@@ -7,6 +7,7 @@ mod server;
 
 use std::io;
 use std::path::Path;
+use std::collections::LinkedList;
 
 use heck::CamelCase;
 
@@ -15,11 +16,13 @@ pub struct Config {
     prost: prost_build::Config,
     build_client: bool,
     build_server: bool,
+    middleware_list: LinkedList<(String, String)>,
 }
 
 struct ServiceGenerator {
     client: Option<client::ServiceGenerator>,
     server: Option<server::ServiceGenerator>,
+    middleware_list: LinkedList<(String, String)>,
     root_scope: codegen::Scope,
 }
 
@@ -35,6 +38,9 @@ impl Config {
 
             // Disable server code gen by default
             build_server: false,
+
+            // a list of middleware to include
+            middleware_list: LinkedList::new(),
         }
     }
 
@@ -46,6 +52,12 @@ impl Config {
     /// Enable gRPC client code generation
     pub fn enable_client(&mut self, enable: bool) -> &mut Self {
         self.build_client = enable;
+        self
+    }
+
+    /// add a piece of middleware
+    pub fn add_middleware(&mut self, pa: &str, ty: &str) -> &mut Self {
+        self.middleware_list.push_back((pa.to_string(), ty.to_string()));
         self
     }
 
@@ -74,6 +86,7 @@ impl Config {
         self.prost.service_generator(Box::new(ServiceGenerator {
             client,
             server,
+            middleware_list: self.middleware_list.clone(),
             root_scope: codegen::Scope::new(),
         }));
 
@@ -93,7 +106,7 @@ impl prost_build::ServiceGenerator for ServiceGenerator {
             client_generator.generate(&service, &mut self.root_scope);
         }
         if let Some(ref mut server_generator) = self.server {
-            server_generator.generate(&service, &mut self.root_scope);
+            server_generator.generate(&service, &mut self.middleware_list, &mut self.root_scope);
         }
     }
 
